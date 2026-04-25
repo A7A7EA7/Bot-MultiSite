@@ -3132,27 +3132,75 @@ bot.command("transport", async (ctx) => {
   await ctx.reply(text, { parse_mode: "Markdown" });
 });
 
+function buildTransportKeyboard() {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback("🔄 Обновить", "admin:transport")],
+    [Markup.button.callback("🧹 Сбросить webhook", "admin:transport:clear")],
+    [Markup.button.callback("🔙 Назад", "admin:main")],
+  ]);
+}
+
+async function renderTransportScreen(ctx: Context, banner?: string): Promise<void> {
+  const report = await buildTransportReport();
+  const text = banner ? `${banner}\n\n${report}` : report;
+  const opts = { parse_mode: "Markdown" as const, ...buildTransportKeyboard() };
+  try {
+    await ctx.editMessageText(text, opts);
+  } catch {
+    await ctx.reply(text, opts);
+  }
+}
+
 bot.action("admin:transport", async (ctx) => {
   if (!(await ownerGate(ctx))) return;
   try { await ctx.answerCbQuery(); } catch { /* ignore */ }
-  const text = await buildTransportReport();
+  await renderTransportScreen(ctx);
+});
+
+bot.action("admin:transport:clear", async (ctx) => {
+  if (!(await ownerGate(ctx))) return;
   try {
-    await ctx.editMessageText(text, {
-      parse_mode: "Markdown",
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback("🔄 Обновить", "admin:transport")],
-        [Markup.button.callback("🔙 Назад", "admin:main")],
-      ]),
-    });
+    await ctx.answerCbQuery("Подтвердите сброс…");
   } catch {
-    await ctx.reply(text, {
-      parse_mode: "Markdown",
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback("🔄 Обновить", "admin:transport")],
-        [Markup.button.callback("🔙 Назад", "admin:main")],
-      ]),
-    });
+    /* ignore */
   }
+  try {
+    await ctx.editMessageText(
+      "🧹 *Сбросить webhook?*\n\n" +
+        "Telegram забудет зарегистрированный URL и очередь ожидающих апдейтов.\n" +
+        "Используйте при переезде между хостами или если бот завис на чужом URL.\n\n" +
+        "Сам бот при этом не остановится. Если активен режим polling — он продолжит работу.\n" +
+        "Если активен режим webhook — бот перестанет получать сообщения, пока не " +
+        "перезапустится и не зарегистрирует URL заново.",
+      {
+        parse_mode: "Markdown",
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback("✅ Сбросить", "admin:transport:clear:yes"),
+            Markup.button.callback("✖️ Отмена", "admin:transport"),
+          ],
+        ]),
+      },
+    );
+  } catch {
+    /* ignore */
+  }
+});
+
+bot.action("admin:transport:clear:yes", async (ctx) => {
+  if (!(await ownerGate(ctx))) return;
+  try { await ctx.answerCbQuery("Сбрасываю…"); } catch { /* ignore */ }
+  let banner: string;
+  try {
+    await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+    logger.info("Webhook cleared via admin transport screen");
+    banner = "✅ *Webhook очищен.* Очередь ожидающих апдейтов сброшена.";
+  } catch (err) {
+    logger.error({ err }, "Failed to clear webhook via admin");
+    const msg = String((err as Error)?.message ?? err);
+    banner = "❌ *Не удалось сбросить webhook.*\n`" + escapeMd(msg) + "`";
+  }
+  await renderTransportScreen(ctx, banner);
 });
 
 // Owner text input handler — must be the LAST text handler so commands win first
