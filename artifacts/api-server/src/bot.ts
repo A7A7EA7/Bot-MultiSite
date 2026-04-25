@@ -3996,11 +3996,69 @@ function startScheduler(): void {
   logger.info("Broadcast scheduler started (poll: 30s)");
 }
 
+function resolveBotMode(): "webhook" | "polling" {
+  const explicit = process.env["BOT_MODE"]?.trim().toLowerCase();
+  if (explicit === "webhook" || explicit === "polling") return explicit;
+  return process.env["WEBHOOK_URL"]?.trim() ? "webhook" : "polling";
+}
+
+function resolveWebhookPath(): string {
+  const raw = process.env["WEBHOOK_PATH"]?.trim() || "/api/telegram/webhook";
+  return raw.startsWith("/") ? raw : `/${raw}`;
+}
+
+export interface WebhookHandle {
+  path: string;
+  middleware: ReturnType<Telegraf["webhookCallback"]>;
+}
+
+let webhookHandle: WebhookHandle | null = null;
+
+export function getWebhookHandle(): WebhookHandle | null {
+  return webhookHandle;
+}
+
 export async function startBot(): Promise<void> {
   await loadStateFromDb();
 
-  bot.launch({ dropPendingUpdates: true });
-  logger.info("Telegram bot started (long polling)");
+  const mode = resolveBotMode();
+
+  if (mode === "webhook") {
+    const baseUrl = process.env["WEBHOOK_URL"]?.trim();
+    if (!baseUrl) {
+      throw new Error(
+        "BOT_MODE=webhook requires WEBHOOK_URL (e.g. https://my-bot.example.com).",
+      );
+    }
+    const path = resolveWebhookPath();
+    const secret = process.env["WEBHOOK_SECRET"]?.trim() || undefined;
+    const fullUrl = baseUrl.replace(/\/+$/, "") + path;
+
+    webhookHandle = {
+      path,
+      middleware: bot.webhookCallback(path, { secretToken: secret }),
+    };
+
+    try {
+      await bot.telegram.setWebhook(fullUrl, {
+        secret_token: secret,
+        drop_pending_updates: true,
+      });
+      logger.info({ url: fullUrl, path }, "Telegram bot started (webhook)");
+    } catch (err) {
+      logger.error({ err, url: fullUrl }, "Failed to register Telegram webhook");
+      throw err;
+    }
+  } else {
+    try {
+      // Make sure no stale webhook is registered before we start polling.
+      await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+    } catch (err) {
+      logger.warn({ err }, "Could not clear existing webhook before polling");
+    }
+    bot.launch({ dropPendingUpdates: true });
+    logger.info("Telegram bot started (long polling)");
+  }
 
   try {
     const me = await bot.telegram.getMe();

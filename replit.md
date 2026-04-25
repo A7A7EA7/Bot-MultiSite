@@ -37,6 +37,17 @@ managed from inside Telegram — no web dashboard required.
   mounted volume, point this at the volume path (e.g. `/app/data/bot.db`).
 - `PORT` — provided by the host.
 
+### Webhook mode (optional)
+
+Default transport is long polling. To run in webhook mode (for
+serverless / scale-to-zero hosts), set:
+
+- `WEBHOOK_URL` — public HTTPS base URL of the deployed service.
+- `WEBHOOK_PATH` — optional. Defaults to `/api/telegram/webhook`.
+- `WEBHOOK_SECRET` — optional. Shared secret Telegram signs updates with.
+- `BOT_MODE` — optional. Force `polling` or `webhook`. Auto-detected from
+  `WEBHOOK_URL` when unset.
+
 ## Portable deployment
 
 The repo ships with config for the major bot hosts. See `DEPLOY.md` for the

@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { getWebhookHandle } from "./bot";
 
 const app: Express = express();
 
@@ -26,6 +27,18 @@ app.use(
   }),
 );
 app.use(cors());
+
+// Telegram webhook dispatcher.
+// Must run BEFORE express.json() so the Telegraf middleware can parse the
+// raw body itself (it expects no prior body parser on its route).
+app.use((req, res, next) => {
+  const handle = getWebhookHandle();
+  if (handle && req.path === handle.path) {
+    return handle.middleware(req, res, next);
+  }
+  return next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

@@ -9,7 +9,19 @@ This bot is a single Node.js service that uses **Telegram long-polling**, so it 
 - A persistent volume mounted at `/app/data` (the bot stores its SQLite DB there). On hosts without volumes the bot still runs, but data resets on every redeploy.
 - Set `DATABASE_URL=/app/data/bot.db` to use the mounted volume (already pre-set in the configs below).
 
-The container exposes port `8080` for a health check at `GET /api/healthz`. The bot itself does not need an inbound port.
+The container exposes port `8080` for a health check at `GET /api/healthz`. The bot itself does not need an inbound port in long-polling mode.
+
+## Polling vs. webhook mode
+
+The bot supports both transports. Pick one per host:
+
+| | Polling (default) | Webhook |
+|---|---|---|
+| When to use | Long-running containers (Render, Railway, Fly, VPS, Heroku containers, …) | Serverless / edge / scale-to-zero hosts that don't keep an outbound process alive (Cloud Run with min-instances=0, Vercel-style hosts, etc.) |
+| Setup | Just set `TELEGRAM_BOT_TOKEN`. | Set `WEBHOOK_URL=https://<your-public-host>` (any HTTPS URL the host gives you). Optionally set `WEBHOOK_PATH` (default `/api/telegram/webhook`) and `WEBHOOK_SECRET` (any random string — Telegram uses it to sign updates). |
+| Public URL needed? | No | Yes — Telegram pushes updates to `WEBHOOK_URL + WEBHOOK_PATH`. |
+
+To force a mode explicitly, set `BOT_MODE=polling` or `BOT_MODE=webhook`. Otherwise the bot auto-picks webhook when `WEBHOOK_URL` is set, polling otherwise.
 
 ---
 
