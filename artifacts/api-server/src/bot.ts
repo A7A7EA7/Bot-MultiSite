@@ -1356,6 +1356,7 @@ function buildAdminMainMenu() {
       Markup.button.callback("⚙️ Настройки", "admin:settings"),
       Markup.button.callback("ℹ️ Команды", "admin:help"),
     ],
+    [Markup.button.callback("🔌 Транспорт", "admin:transport")],
     [Markup.button.callback("❌ Закрыть", "admin:close")],
   ]);
 }
@@ -3031,12 +3032,127 @@ bot.action("admin:help", async (ctx) => {
       "🔒 *Управление ссылками:*\n" +
       "/addlink `Название | https://...`\n" +
       "/removelink `<номер>`\n" +
-      "/stats — Статистика",
+      "/stats — Статистика\n\n" +
+      "⚙️ *Система:*\n" +
+      "/transport — Текущий режим (polling/webhook) и здоровье вебхука",
     {
       parse_mode: "Markdown",
       ...Markup.inlineKeyboard([[Markup.button.callback("🔙 Назад", "admin:main")]]),
     },
   );
+});
+
+// ===== Transport diagnostics =====
+//
+// Shows whether the bot is currently using long-polling or a Telegram webhook,
+// along with webhook health pulled from Telegram (pending updates, last error,
+// IP, max connections). Owner-only.
+
+function escapeMd(s: string): string {
+  return s.replace(/[_*`\[\]]/g, (c) => `\\${c}`);
+}
+
+function formatUtcOrDash(secondsSinceEpoch: number | undefined): string {
+  if (!secondsSinceEpoch) return "—";
+  return new Date(secondsSinceEpoch * 1000).toISOString().replace("T", " ").slice(0, 19) + " UTC";
+}
+
+async function buildTransportReport(): Promise<string> {
+  const mode = resolveBotMode();
+  const lines: string[] = [];
+  lines.push("🔌 *Транспорт*");
+  lines.push("━━━━━━━━━━━━━━━━━━");
+  lines.push("");
+  lines.push(`Активный режим: *${mode === "webhook" ? "Webhook" : "Long polling"}*`);
+  lines.push("");
+
+  let info: Awaited<ReturnType<typeof bot.telegram.getWebhookInfo>> | null = null;
+  try {
+    info = await bot.telegram.getWebhookInfo();
+  } catch (err) {
+    lines.push("⚠️ Не удалось получить webhook info от Telegram.");
+    lines.push("`" + escapeMd(String((err as Error)?.message ?? err)) + "`");
+    return lines.join("\n");
+  }
+
+  const registeredUrl = info.url && info.url.length > 0 ? info.url : null;
+
+  if (mode === "webhook") {
+    if (!registeredUrl) {
+      lines.push("⚠️ Режим webhook включён, но Telegram сообщает, что URL не зарегистрирован.");
+    } else {
+      lines.push("URL: `" + escapeMd(registeredUrl) + "`");
+    }
+  } else {
+    lines.push(
+      registeredUrl
+        ? "ℹ️ Telegram всё ещё помнит вебхук: `" + escapeMd(registeredUrl) + "`. " +
+            "Он будет очищен при следующем запуске."
+        : "Webhook на стороне Telegram не зарегистрирован — это норма для polling.",
+    );
+  }
+
+  lines.push("");
+  lines.push("📨 Ожидает обработки: *" + (info.pending_update_count ?? 0) + "*");
+  if (typeof info.max_connections === "number") {
+    lines.push("🔗 Max connections: " + info.max_connections);
+  }
+  if (info.ip_address) {
+    lines.push("🌐 IP: `" + escapeMd(info.ip_address) + "`");
+  }
+  if (info.has_custom_certificate) {
+    lines.push("🔐 Self-signed cert: да");
+  }
+
+  if (info.last_error_date) {
+    lines.push("");
+    lines.push("❌ *Последняя ошибка:*");
+    lines.push("При: " + formatUtcOrDash(info.last_error_date));
+    if (info.last_error_message) {
+      lines.push("`" + escapeMd(info.last_error_message) + "`");
+    }
+  } else {
+    lines.push("");
+    lines.push("✅ Ошибок Telegram не зафиксировано.");
+  }
+
+  if (info.last_synchronization_error_date) {
+    lines.push("");
+    lines.push(
+      "⚠️ Последняя синхронизация: " + formatUtcOrDash(info.last_synchronization_error_date),
+    );
+  }
+
+  return lines.join("\n");
+}
+
+bot.command("transport", async (ctx) => {
+  if (!isOwner(ctx)) return;
+  const text = await buildTransportReport();
+  await ctx.reply(text, { parse_mode: "Markdown" });
+});
+
+bot.action("admin:transport", async (ctx) => {
+  if (!(await ownerGate(ctx))) return;
+  try { await ctx.answerCbQuery(); } catch { /* ignore */ }
+  const text = await buildTransportReport();
+  try {
+    await ctx.editMessageText(text, {
+      parse_mode: "Markdown",
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback("🔄 Обновить", "admin:transport")],
+        [Markup.button.callback("🔙 Назад", "admin:main")],
+      ]),
+    });
+  } catch {
+    await ctx.reply(text, {
+      parse_mode: "Markdown",
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback("🔄 Обновить", "admin:transport")],
+        [Markup.button.callback("🔙 Назад", "admin:main")],
+      ]),
+    });
+  }
 });
 
 // Owner text input handler — must be the LAST text handler so commands win first
