@@ -1356,7 +1356,10 @@ function buildAdminMainMenu() {
       Markup.button.callback("⚙️ Настройки", "admin:settings"),
       Markup.button.callback("ℹ️ Команды", "admin:help"),
     ],
-    [Markup.button.callback("🔌 Транспорт", "admin:transport")],
+    [
+      Markup.button.callback("🔌 Транспорт", "admin:transport"),
+      Markup.button.callback("💾 Бэкап БД", "admin:backup"),
+    ],
     [Markup.button.callback("❌ Закрыть", "admin:close")],
   ]);
 }
@@ -3130,6 +3133,48 @@ bot.command("transport", async (ctx) => {
   if (!isOwner(ctx)) return;
   const text = await buildTransportReport();
   await ctx.reply(text, { parse_mode: "Markdown" });
+});
+
+bot.action("admin:backup", async (ctx) => {
+  if (!(await ownerGate(ctx))) return;
+  try { await ctx.answerCbQuery("Готовлю бэкап…"); } catch { /* ignore */ }
+  try {
+    await sendBackupToOwner("💾 Резервная копия базы данных");
+    try {
+      await ctx.editMessageText(
+        "✅ *Бэкап отправлен*\n\n" +
+          "Файл `bot-backup-*.db` пришёл вам в личные сообщения.\n" +
+          "Сохраните его перед переездом между хостами — потом восстановите " +
+          "командой /restore (ответом на это же сообщение).",
+        {
+          parse_mode: "Markdown",
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback("💾 Ещё раз", "admin:backup")],
+            [Markup.button.callback("🔙 Назад", "admin:main")],
+          ]),
+        },
+      );
+    } catch {
+      /* ignore — main message already edited or replaced */
+    }
+  } catch (err) {
+    logger.error({ err }, "Failed to send backup from admin menu");
+    const msg = String((err as Error)?.message ?? err);
+    try {
+      await ctx.editMessageText(
+        "❌ *Не удалось создать бэкап.*\n`" + escapeMd(msg) + "`",
+        {
+          parse_mode: "Markdown",
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback("🔁 Повторить", "admin:backup")],
+            [Markup.button.callback("🔙 Назад", "admin:main")],
+          ]),
+        },
+      );
+    } catch {
+      /* ignore */
+    }
+  }
 });
 
 function buildTransportKeyboard() {
