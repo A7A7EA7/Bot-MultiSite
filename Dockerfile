@@ -48,7 +48,6 @@ RUN pnpm install --prod --frozen-lockfile --filter @workspace/api-server... \
 # Persistent SQLite data lives here. Mount a volume on this path on whatever
 # host you deploy to (Fly volume, Render disk, Railway volume, etc.).
 RUN mkdir -p /app/data
-VOLUME ["/app/data"]
 
 ENV PORT=8080
 EXPOSE 8080
